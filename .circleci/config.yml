@@ -9,6 +9,9 @@ workflows:
     jobs:
       - check-coding-style
       - node-v12
+      - node-v12:
+          name: node-v12-min-dependencies
+          min_dependencies: true
       - node-v14
       - node-v16
       - node-v18
@@ -16,6 +19,9 @@ workflows:
       - node-v22
       - node-current:
           run_coveralls: true
+      - node-current:
+          name: node-current-min-dependencies
+          min_dependencies: true
       - build-package
       - hardhat-sample-project: *requires_package
       - cli-smoke-test: *requires_package
@@ -168,10 +174,31 @@ jobs:
       run_coveralls:
         type: boolean
         default: false
+      min_dependencies:
+        description: "Install the oldest dependencies still matching ranges specified in package.json"
+        type: boolean
+        default: false
     steps:
       # We want the default npm here. Older one might not work with older node.js
       - show-npm-version
       - checkout
+      - when:
+          condition: <<parameters.min_dependencies>>
+          steps:
+            - run:
+                name: Install the semver utility
+                command: |
+                  # NOTE: Newer cimg/node images require sudo here, older don't. Try both.
+                  sudo npm install semver --global || npm install semver --global
+            - run:
+                name: Force oldest supported dependency versions in package.json
+                command: |
+                  min_package_json=$(.circleci/package-json-with-min-dependencies.sh)
+                  echo "$min_package_json" > package.json
+            - run:
+                name: "Show selected dependency versions"
+                command: |
+                  jq 'with_entries(select(.key == "dependencies" or .key == "devDependencies"))' package.json --indent 4
       - install-dependencies:
           cache-id: solc-js
       - run:
