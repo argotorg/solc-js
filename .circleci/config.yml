@@ -119,7 +119,7 @@ commands:
             if [[ "<<parameters.package-manager>>" == "pnpm" ]]; then
               <<parameters.package-manager>> install --no-frozen-lockfile --node-linker=hoisted
             else
-              <<parameters.package-manager>> install
+              <<parameters.package-manager>> install --legacy-peer-deps
             fi
       - run:
           name: "Sanity check: all transitive dependencies successfully replaced with the tarball"
