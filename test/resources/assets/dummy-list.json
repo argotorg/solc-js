@@ -1,0 +1,33 @@
+{
+  "builds": [
+    {
+      "path": "soljson-v0.8.16+commit.07a7930e.js",
+      "version": "0.8.16",
+      "build": "commit.07a7930e",
+      "longVersion": "0.8.16+commit.07a7930e",
+      "keccak256": "0x331f4bc6de3d44d87b68629e83f711105325b482da7e9ca9bdbdd01371fee438",
+      "sha256": "0x27b2820ef93805a65c76b7945a49432582d306fd17a28985709a51e6403677c2",
+      "urls": [
+        "bzzr://af0d70945c85865298732ac2bfdacdf2774fb4daf793c94fafe135b839a60a5c",
+        "dweb:/ipfs/QmWzBJ8gdccvRSSB5YsMKiF2qt3RFmAP2X25QEWqqQnR4y"
+      ]
+    },
+    {
+      "path": "soljson-v0.8.17+commit.8df45f5f.js",
+      "version": "0.8.17",
+      "build": "commit.8df45f5f",
+      "longVersion": "0.8.17+commit.8df45f5f",
+      "keccak256": "0x3f2be218cf4545b4d2e380417c6da1e008fdc4255ab38c9ee12f64c0e3f55ea9",
+      "sha256": "0x617828e63be485c7cc2dbcbdd5a22b582b40fafaa41016ad595637b83c90656c",
+      "urls": [
+        "bzzr://fe8da5b2531d31e4b67acdce09c81eccba1100550a7222722152ffdb16ea85ef",
+        "dweb:/ipfs/QmTedx1wBKSUaLatuqXYngjfKQLD2cGqPKjdLYCnbMYwiz"
+      ]
+    }
+  ],
+  "releases": {
+    "0.8.17": "soljson-v0.8.17+commit.8df45f5f.js",
+    "0.8.16": "soljson-v0.8.16+commit.07a7930e.js"
+  },
+  "latestRelease": "0.8.17"
+}
