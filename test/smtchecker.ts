@@ -56,7 +56,7 @@ tape('SMTChecker', function (t) {
 
 tape('SMTCheckerWithSolver', function (t) {
   // In these tests we require z3 to actually run the solver.
-  // This uses the SMT double run mechanism instead of the callback.
+  // This uses the SMT double-run mechanism instead of the callback.
 
   t.test('Simple test with axuiliaryInputRequested', function (st) {
     const z3 = smtsolver.availableSolvers.filter(solver => solver.command === 'z3');

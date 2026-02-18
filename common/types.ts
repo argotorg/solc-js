@@ -1,7 +1,7 @@
 /**
  * A mapping between libraries and the addresses to which they were deployed.
  *
- * Containing support for two level configuration, These two level
+ * Containing support for two-level configuration, this two-level
  * configurations can be seen below.
  *
  * {
@@ -16,7 +16,7 @@ export interface LibraryAddresses {
 
 /**
  * A mapping between libraries and lists of placeholder instances present in their hex-encoded bytecode.
- * For each placeholder its length and the position of the first character is stored.
+ * For each placeholder its length and the position of the first character are stored.
  *
  * Each start and length entry will always directly refer to the position in
  * binary and not hex-encoded bytecode.

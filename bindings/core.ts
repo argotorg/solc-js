@@ -128,7 +128,7 @@ function bindReset (solJson) {
  *
  * @param solJson The Emscripten compiled Solidity object.
  * @param alloc The memory allocation function.
- * @param str The source string being copied to a C string.
+ * @param str The source string is being copied to a C string.
  * @param ptr The pointer location where the C string will be set.
  */
 function unboundCopyToCString (solJson, alloc, str, ptr) {
