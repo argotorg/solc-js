@@ -27,14 +27,24 @@ function libraryHashPlaceholder (fullyQualifiedLibraryName) {
  *
  * @param address Address to replace placeholders with. Must be the right length.
  *     It will **not** be padded with zeros if too short.
+ *
+ * @param linkReferences A optional mapping of libraries to lists of placeholder positions in the binary.
  */
-function replacePlaceholder (bytecode, label, address) {
+function replacePlaceholder (bytecode: string, label: string, address: string, linkReferences?: LinkReferences): string {
+  // Try to find link references if `linkReferences` is not provided
+  if (!linkReferences) {
+    linkReferences = findLinkReferences(bytecode);
+  }
+
   // truncate to 36 characters
   const truncatedName = label.slice(0, 36);
-  const libLabel = `__${truncatedName.padEnd(36, '_')}__`;
 
-  while (bytecode.indexOf(libLabel) >= 0) {
-    bytecode = bytecode.replace(libLabel, address);
+  if (linkReferences[truncatedName]) {
+    linkReferences[truncatedName].forEach(function (reference) {
+      const start = reference.start * 2;
+      const end = (reference.start + reference.length) * 2;
+      bytecode = bytecode.replace(bytecode.substring(start, end), address);
+    });
   }
 
   return bytecode;
@@ -55,10 +65,12 @@ function replacePlaceholder (bytecode, label, address) {
  * @param libraries Mapping between fully qualified library names and the hex-encoded
  *     addresses they should be replaced with. Addresses shorter than 40 characters are automatically padded with zeros.
  *
+ * @param linkReferences A optional mapping of libraries to lists of placeholder positions in the binary.
+ *
  * @returns bytecode Hex-encoded bytecode string with placeholders replaced with addresses.
  *    Note that some placeholders may remain in the bytecode if `libraries` does not provide addresses for all of them.
  */
-function linkBytecode (bytecode: string, libraries: LibraryAddresses): string {
+function linkBytecode (bytecode: string, libraries: LibraryAddresses, linkReferences?: LinkReferences): string {
   assert(typeof bytecode === 'string');
   assert(typeof libraries === 'object');
 
@@ -103,8 +115,8 @@ function linkBytecode (bytecode: string, libraries: LibraryAddresses): string {
     // remove 0x prefix
     hexAddress = hexAddress.slice(2).padStart(40, '0');
 
-    bytecode = replacePlaceholder(bytecode, libraryName, hexAddress);
-    bytecode = replacePlaceholder(bytecode, libraryHashPlaceholder(libraryName), hexAddress);
+    bytecode = replacePlaceholder(bytecode, libraryName, hexAddress, linkReferences);
+    bytecode = replacePlaceholder(bytecode, libraryHashPlaceholder(libraryName), hexAddress, linkReferences);
   }
 
   return bytecode;
