@@ -139,29 +139,20 @@ commands:
               exit 1
             fi
 
-  fetch-latest-hardhat-release-tag:
-    description: "Uses GitHub API to fetch the latest hardhat release version."
+  fetch-latest-hardhat-v2-version:
+    description: "Uses npm registry to fetch the latest hardhat v2 release version."
     steps:
       - run:
-          name: Retrieve Hardhat latest release tag
+          name: Retrieve latest Hardhat v2 version
           command: |
-            # Make authenticated requests when the Github token is available
-            if [[ -n "$GITHUB_ACCESS_TOKEN" ]]; then
-              EXTRA_HEADERS=(--header "Authorization: Bearer ${GITHUB_ACCESS_TOKEN}")
-            fi
             # Pinned to hardhat v2 as v3 doesn't use soljson any longer.
             # This test should either be removed or replaced with something else.
-            HARDHAT_LATEST_RELEASE_TAG=$(
-              curl \
-                --silent \
-                --location \
-                --fail \
-                --show-error \
-                "${EXTRA_HEADERS[@]}" \
-                https://api.github.com/repos/nomiclabs/hardhat/releases \
-                | jq --raw-output 'map(select(.prerelease == false and (.tag_name | test("^hardhat@2")))) | .[0].tag_name' \
+            HARDHAT_V2_VERSION=$(
+              npm view hardhat@'>=2.0.0 <3.0.0' version --json \
+                | jq --raw-output 'last' \
             )
-            echo "export HARDHAT_LATEST_RELEASE_TAG='${HARDHAT_LATEST_RELEASE_TAG}'" >> "$BASH_ENV"
+            HARDHAT_V2_VERSION="hardhat@${HARDHAT_V2_VERSION}"
+            echo "export HARDHAT_V2_VERSION='${HARDHAT_V2_VERSION}'" >> "$BASH_ENV"
 
 jobs:
   node-base: &node-base
@@ -257,14 +248,19 @@ jobs:
       - install-dependencies:
           cache-id: hardhat-hackathon-boilerplate
           path: boilerplate
-      - fetch-latest-hardhat-release-tag
+      - fetch-latest-hardhat-v2-version
       - run:
-          name: Update to the latest Hardhat release
+          name: Update to the latest Hardhat v2 release
           command: |
             # We can just use a release here because injection does not require rebuilding it.
             cd boilerplate/
             # Install the latest release of Hardhat if the version matches the expected format.
-            [[ "${HARDHAT_LATEST_RELEASE_TAG}" =~ ^hardhat@([0-9]+\.){2}[0-9]+$ ]] && npm install ${HARDHAT_LATEST_RELEASE_TAG}
+            if [[ "${HARDHAT_V2_VERSION}" =~ ^hardhat@([0-9]+\.){2}[0-9]+$ ]]; then
+              npm install "${HARDHAT_V2_VERSION}"
+            else
+              echo "ERROR: HARDHAT_V2_VERSION='${HARDHAT_V2_VERSION}' does not match expected format."
+              exit 1
+            fi
 
       - inject-solc-js-tarball:
           path: boilerplate/
