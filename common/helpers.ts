@@ -1,3 +1,6 @@
+import fs from 'fs';
+import { keccak256 } from 'js-sha3';
+
 /**
  * Returns true if and only if the value is null or undefined.
  *
@@ -17,4 +20,13 @@ export function isObject (value: any): boolean {
   // typeof [] will result in an 'object' so this additionally uses Array.isArray
   // to confirm it's just an object.
   return typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Returns the keccak256 hash of a file.
+ *
+ * @param path The path to the file to be hashed.
+ */
+export function hashFile (path: string): string {
+  return '0x' + keccak256(fs.readFileSync(path, { encoding: 'binary' }));
 }
