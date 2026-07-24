@@ -18,6 +18,12 @@ tape('Version string to Semver translator', function (t) {
     st.equal(versionToSemver('0.4.20-nightly.2018.2.13+commit.27ef9794.Emscripten.clang'), '0.4.20-nightly.2018.2.13+commit.27ef9794.Emscripten.clang');
     st.end();
   });
+  t.test('Broken nightly with leading zeroes', function (st) {
+    st.equal(versionToSemver('0.3.6-nightly.2016.08.27+commit.91d4fa47.Emscripten.clang'), '0.3.6-nightly.2016.8.27+commit.91d4fa47.Emscripten.clang');
+    st.equal(versionToSemver('0.4.1-nightly.2016.09.09+commit.79867f49.Emscripten.clang'), '0.4.1-nightly.2016.9.9+commit.79867f49.Emscripten.clang');
+    st.equal(versionToSemver('0.4.1-nightly.2016.12.06+commit.79867f49.Emscripten.clang'), '0.4.1-nightly.2016.12.6+commit.79867f49.Emscripten.clang');
+    st.end();
+  });
   t.test('Old style 0.1.1', function (st) {
     st.equal(versionToSemver('0.1.1-6ff4cd6b/RelWithDebInfo-Emscripten/clang/int'), '0.1.1+commit.6ff4cd6b');
     st.end();
@@ -35,6 +41,10 @@ tape('Version string to Semver translator', function (t) {
       versionToSemver('0.2.0-e7098958/.-Emscripten/clang/int linked to libethereum-1.1.1-bbb80ab0/.-Emscripten/clang/int'),
       '0.2.0+commit.e7098958'
     );
+    st.end();
+  });
+  t.test('Broken 0.3.4 nightly', function (st) {
+    st.equal(versionToSemver('0.3.4-0/Release-Emscripten/clang/Interpreter'), '0.3.4-nightly');
     st.end();
   });
   t.test('Old style 0.3.5', function (st) {
