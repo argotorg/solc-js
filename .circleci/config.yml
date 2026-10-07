@@ -8,8 +8,6 @@ workflows:
   pr-checks:
     jobs:
       - check-coding-style
-      - node-v12
-      - node-v14
       - node-v16
       - node-v18
       - node-v20
@@ -345,14 +343,6 @@ jobs:
       - run: cd solidity/ && curl "https://binaries.soliditylang.org/bin/soljson-nightly.js" --location --output soljson.js
       - run: cd solidity/ && test/externalTests/solc-js/solc-js.sh "$(realpath soljson.js)" "$(scripts/get_version.sh)" "$(realpath ../solc-js/)"
 
-  node-v12:
-    <<: *node-base
-    docker:
-      - image: cimg/node:12.22
-  node-v14:
-    <<: *node-base
-    docker:
-      - image: cimg/node:14.21
   node-v16:
     <<: *node-base
     docker:
