@@ -202,7 +202,7 @@ The low-level API is as follows:
 - `solc.lowlevel.compileCallback`: this supports callbacks, introduced in 0.2.1
 - `solc.lowlevel.compileStandard`: this works just like `compile` above, but is only present in compilers after (and including) 0.4.11
 
-For examples how to use them, please refer to the README of the above mentioned solc-js releases.
+For examples of how to use them, please refer to the README of the above-mentioned solc-js releases.
 
 **Note**: These low-level functions remain available for compatibility reasons.
 However, they were superseded by the `compile()` function and are no longer required.
