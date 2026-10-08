@@ -203,6 +203,47 @@ tape('CLI', function (t) {
     });
   });
 
+  t.test('standard json with input arriving on stdin in small chunks', function (st) {
+    // NOTE: Regression test for #460. A single write of the whole input arrives atomically and
+    // would not reproduce the bug; writing one byte at a time forces the race that triggers it.
+    const input = {
+      language: 'Solidity',
+      settings: {
+        outputSelection: {
+          '*': {
+            '*': ['evm.bytecode', 'userdoc']
+          }
+        }
+      },
+      sources: {
+        'Contract.sol': {
+          content: 'pragma solidity >=0.5.0; contract Contract { function f() pure public {} }'
+        }
+      }
+    };
+    const data = JSON.stringify(input);
+    const spt = spawn(st, './solc.js --standard-json');
+    spt.stdin.setEncoding('utf-8');
+    let i = 0;
+    const writeNextChunk = function () {
+      if (i >= data.length) {
+        spt.stdin.end();
+        return;
+      }
+      spt.stdin.write(data[i]);
+      i++;
+      setImmediate(writeNextChunk);
+    };
+    writeNextChunk();
+    spt.stdin.on('finish', function () {
+      spt.stderr.empty();
+      spt.stdout.match(/Contract.sol/);
+      spt.stdout.match(/userdoc/);
+      spt.succeeds();
+      spt.end();
+    });
+  });
+
   t.test('standard json base path', function (st) {
     const input = {
       language: 'Solidity',
