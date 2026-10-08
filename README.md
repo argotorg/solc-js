@@ -272,7 +272,7 @@ var linker = require('solc/linker');
 bytecode = linker.linkBytecode(bytecode, { MyLibrary: '0x123456...' });
 ```
 
-As of Solidity 0.4.11 the compiler supports [standard JSON input and output](https://solidity.readthedocs.io/en/develop/using-the-compiler.html#compiler-input-and-output-json-description) which outputs a _link references_ map. This gives a map of library names to offsets in the bytecode to replace the addresses at. It also doesn't have the limitation on library file and contract name lengths.
+As of Solidity 0.4.11 the compiler supports [standard JSON input and output](https://docs.soliditylang.org/en/develop/using-the-compiler.html#compiler-input-and-output-json-description) which outputs a _link references_ map. This gives a map of library names to offsets in the bytecode to replace the addresses at. It also doesn't have the limitation on library file and contract name lengths.
 
 There is a method available in the `linker` module called `findLinkReferences` which can find such link references in bytecode produced by an older compiler:
 
