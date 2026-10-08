@@ -28,7 +28,7 @@ function wrapper (soljson) {
     features: {
       legacySingleInput: methodFlags.compileJsonStandardSupported,
       multipleInputs: methodFlags.compileJsonMultiSupported || methodFlags.compileJsonStandardSupported,
-      importCallback: methodFlags.compileJsonCallbackSuppported || methodFlags.compileJsonStandardSupported,
+      importCallback: methodFlags.compileJsonCallbackSupported || methodFlags.compileJsonStandardSupported,
       nativeStandardJSON: methodFlags.compileJsonStandardSupported
     },
     compile: compileStandardWrapper.bind(this, compileBindings),
