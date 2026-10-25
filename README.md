@@ -63,6 +63,10 @@ This callback receives a path and must synchronously return either an error or t
 as a string.  It cannot be used together with callback-based, asynchronous,
 filesystem access. A workaround is to collect the names of dependencies, return
 an error, and keep re-running the compiler until all of them are resolved.
+The callback must not throw exceptions: catch any error raised inside it and
+return it as ``{ error: ... }`` instead. An exception escaping the callback is
+re-thrown to the caller after the compilation has unwound, but relying on that
+is discouraged - returning errors explicitly keeps the callback contract clear.
 
 #### Example usage without the import callback
 
@@ -121,12 +125,18 @@ var input = {
 };
 
 function findImports(path) {
-  if (path === 'lib.sol')
-    return {
-      contents:
-        'library L { function f() internal returns (uint) { return 7; } }'
-    };
-  else return { error: 'File not found' };
+  // Wrap the body in try/catch: the callback must report failures as
+  // { error: ... } and never let an exception escape.
+  try {
+    if (path === 'lib.sol')
+      return {
+        contents:
+          'library L { function f() internal returns (uint) { return 7; } }'
+      };
+    else return { error: 'File not found' };
+  } catch (exception) {
+    return { error: 'Error reading ' + path + ': ' + exception.message };
+  }
 }
 
 // New syntax (supported from 0.5.12, mandatory from 0.6.0)
