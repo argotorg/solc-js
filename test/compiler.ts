@@ -2,12 +2,31 @@ import assert from 'assert';
 import tape from 'tape';
 import * as semver from 'semver';
 import * as tmp from 'tmp';
+import * as fs from 'fs';
+import * as path from 'path';
 import solc from '../';
 import linker from '../linker';
 import { execSync } from 'child_process';
 import wrapper from '../wrapper';
 
 const noRemoteVersions = (process.argv.indexOf('--no-remote-versions') >= 0);
+
+// Validates the value of --use-soljson <path> (#666).
+function validateUseSoljson (arg: string | undefined): string {
+  if (arg === undefined || arg.startsWith('--')) {
+    fs.writeSync(2, 'Error: --use-soljson requires a path to a soljson file\n');
+    process.exit(1);
+  }
+  const resolved = path.resolve(arg);
+  if (!fs.existsSync(resolved)) {
+    fs.writeSync(2, 'Error: --use-soljson: no such file: ' + arg + '\n');
+    process.exit(1);
+  }
+  return resolved;
+}
+
+const useSoljsonIndex = process.argv.indexOf('--use-soljson');
+const useSoljson = useSoljsonIndex >= 0 ? validateUseSoljson(process.argv[useSoljsonIndex + 1]) : null;
 
 function runTests (solc, versionText) {
   console.log(`Running tests with ${versionText} ${solc.version()}`);
@@ -873,7 +892,12 @@ function runTests (solc, versionText) {
 
 runTests(solc, 'latest');
 
-if (!noRemoteVersions) {
+if (useSoljson !== null) {
+  // Run the suite against one specific soljson binary instead of the
+  // hard-coded remote version list (#666).
+  const newSolc = wrapper(require(useSoljson));
+  runTests(newSolc, useSoljson);
+} else if (!noRemoteVersions) {
   // New compiler interface features 0.1.6, 0.2.1, 0.4.11, 0.5.0, etc.
   // 0.4.0 added pragmas (used in tests above)
   const versions = [
