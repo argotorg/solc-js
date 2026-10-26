@@ -39,7 +39,7 @@ function runTests (solc, versionText) {
   function getBytecodeStandard (output, fileName, contractName) {
     try {
       let outputFile;
-      if (semver.lt(solc.semver(), '0.4.9')) {
+      if (semver.lt(solc.semver(), '0.4.0')) {
         outputFile = output.contracts[''];
       } else {
         if (semver.gt(solc.semver(), '0.4.10') && semver.lt(solc.semver(), '0.4.20')) {
@@ -56,7 +56,7 @@ function runTests (solc, versionText) {
   function getGasEstimate (output, fileName, contractName) {
     try {
       let outputFile;
-      if (semver.lt(solc.semver(), '0.4.9')) {
+      if (semver.lt(solc.semver(), '0.4.0')) {
         outputFile = output.contracts[''];
       } else {
         if (semver.gt(solc.semver(), '0.4.10') && semver.gt(solc.semver(), '0.4.20')) {
@@ -531,6 +531,118 @@ function runTests (solc, versionText) {
         const A = getBytecodeStandard(output, 'a.sol', 'A');
         st.ok(typeof A === 'string');
         st.ok(A.length > 0);
+        st.end();
+      });
+
+      t.test('compiling standard JSON (empty path repair <0.4.9)', function (st) {
+        // <0.1.6 doesn't have multiple inputs
+        if (!solc.features.multipleInputs) {
+          st.skip('Not supported by solc');
+          st.end();
+          return;
+        }
+
+        // Duplicate contract names in different files are an error before
+        // 0.3.6, so those versions only get the uniquely named sources.
+        const sources: any = {
+          'a.sol': {
+            content: 'contract Alpha {}'
+          },
+          'b.sol': {
+            content: 'contract Beta {}'
+          }
+        };
+        if (semver.gte(solc.semver(), '0.3.6')) {
+          sources['dup1.sol'] = { content: 'contract Dup {}' };
+          sources['dup2.sol'] = { content: 'contract Dup {}' };
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                '*': ['evm.bytecode']
+              }
+            }
+          },
+          sources: sources
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        st.ok(expectNoError(output));
+        if (semver.lt(solc.semver(), '0.4.0')) {
+          // ASTs older than the 0.4.x SourceUnit format are not understood by
+          // the repair: everything stays grouped under the empty path.
+          st.deepEqual(Object.keys(output.contracts), [''], 'pre-0.4.0 stays grouped under the empty path');
+          st.ok(output.contracts[''] && output.contracts[''].Alpha);
+          st.ok(output.contracts[''] && output.contracts[''].Beta);
+        } else if (semver.lt(solc.semver(), '0.4.9')) {
+          // The compiler itself emits a single entry for a duplicated contract
+          // name, and with two possible source paths it cannot be attributed.
+          st.ok(output.contracts['a.sol'] && output.contracts['a.sol'].Alpha, 'uniquely named contract moved to its source path');
+          st.ok(output.contracts['b.sol'] && output.contracts['b.sol'].Beta, 'uniquely named contract moved to its source path');
+          st.deepEqual(output.contracts[''] ? Object.keys(output.contracts['']) : [], ['Dup'], 'ambiguous duplicate stays under the empty path');
+          st.ok(output.contracts['a.sol'] && output.contracts['a.sol'].Alpha.evm.bytecode.object.length > 0);
+        } else {
+          st.ok(output.contracts['a.sol'] && output.contracts['a.sol'].Alpha);
+          st.ok(output.contracts['b.sol'] && output.contracts['b.sol'].Beta);
+          st.ok(output.contracts['dup1.sol'] && output.contracts['dup1.sol'].Dup);
+          st.ok(output.contracts['dup2.sol'] && output.contracts['dup2.sol'].Dup);
+          st.ok(!output.contracts[''], 'no empty path grouping');
+        }
+        st.end();
+      });
+
+      t.test('compiling standard JSON (empty path repair with callback import)', function (st) {
+        // The repair relies on output.sources entries, which callback-loaded
+        // sources also get; duplicate names are a hard error before 0.3.6 and
+        // the repair only understands the 0.4.x AST format.
+        if (!solc.features.importCallback || semver.lt(solc.semver(), '0.4.0')) {
+          st.skip('Not supported by solc');
+          st.end();
+          return;
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                '*': ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract Alpha { function f() public {} } contract Dup {}'
+            },
+            'b.sol': {
+              content: 'import "dep.sol"; contract Beta { Dep d; }'
+            }
+          }
+        };
+
+        function findImports (path) {
+          if (path === 'dep.sol') {
+            return { contents: 'contract Dep { function f() public {} } contract Dup {}' };
+          } else {
+            return { error: 'File not found' };
+          }
+        }
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input), { import: findImports }));
+        st.ok(expectNoError(output));
+        if (semver.lt(solc.semver(), '0.4.9')) {
+          st.ok(output.contracts['a.sol'] && output.contracts['a.sol'].Alpha, 'contract from an input source moved to its path');
+          st.ok(output.contracts['b.sol'] && output.contracts['b.sol'].Beta);
+          st.ok(output.contracts['dep.sol'] && output.contracts['dep.sol'].Dep, 'contract from a callback-loaded source moved to its path');
+          st.deepEqual(output.contracts[''] ? Object.keys(output.contracts['']) : [], ['Dup'], 'name duplicated across input and callback sources stays under the empty path');
+        } else {
+          st.ok(output.contracts['a.sol'] && output.contracts['a.sol'].Alpha && output.contracts['a.sol'].Dup);
+          st.ok(output.contracts['dep.sol'] && output.contracts['dep.sol'].Dep && output.contracts['dep.sol'].Dup);
+          st.ok(!output.contracts[''], 'no empty path grouping');
+        }
         st.end();
       });
 

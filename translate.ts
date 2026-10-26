@@ -63,6 +63,77 @@ function translateGasEstimates (gasEstimates) {
   return gasEstimatesTranslated;
 }
 
+// Compilers older than 0.4.9 do not include source paths in their contract
+// output: the wrapper groups every contract under the empty path "". Rebuild
+// the per-file grouping from the legacyAST of each source when a contract
+// name is declared in exactly one source. Anything ambiguous or unrecognized
+// is left under "" so no compiler output is ever moved on a guess.
+function repairEmptyPathContracts (contracts, sources) {
+  if (contracts === null || typeof contracts !== 'object') return contracts;
+  const emptyBucket = contracts[''];
+  if (emptyBucket === null || typeof emptyBucket !== 'object') return contracts;
+
+  // Sets an own property without triggering the __proto__ setter.
+  function setOwn (obj, key, value) {
+    Object.defineProperty(obj, key, { value: value, enumerable: true, writable: true, configurable: true });
+  }
+
+  // Only the legacyAST shape emitted by 0.4.x (a SourceUnit whose children
+  // are ContractDefinition nodes carrying attributes.name) is understood.
+  // Older formats (e.g. a "root" node) are left untouched.
+  const declarations = Object.create(null);
+  if (sources !== null && typeof sources === 'object') {
+    for (const path of Object.keys(sources)) {
+      const entry = sources[path];
+      const ast = entry !== null && typeof entry === 'object' ? entry.legacyAST : null;
+      if (ast === null || typeof ast !== 'object' || ast.name !== 'SourceUnit' || !Array.isArray(ast.children)) continue;
+      for (const node of ast.children) {
+        if (node === null || typeof node !== 'object' || node.name !== 'ContractDefinition') continue;
+        if (node.attributes === null || typeof node.attributes !== 'object' || typeof node.attributes.name !== 'string') continue;
+        const name = node.attributes.name;
+        if (declarations[name] === undefined) declarations[name] = Object.create(null);
+        declarations[name][path] = true;
+      }
+    }
+  }
+
+  let movedAny = false;
+  const repaired = {};
+  for (const file of Object.keys(contracts)) {
+    if (file !== '') setOwn(repaired, file, contracts[file]);
+  }
+
+  const remaining = {};
+  for (const name of Object.keys(emptyBucket)) {
+    const paths = declarations[name] === undefined ? [] : Object.keys(declarations[name]);
+    const target = paths.length === 1 ? paths[0] : null;
+    // Move only on a unique declaration that does not clobber an existing
+    // entry; otherwise keep the contract under "". An existing bucket that
+    // is not a plain object (null, scalar or array) is preserved unchanged
+    // and blocks the move.
+    let canMove = false;
+    if (target !== null && target !== '') {
+      if (!Object.prototype.hasOwnProperty.call(repaired, target)) {
+        canMove = true;
+      } else {
+        const bucket = repaired[target];
+        if (bucket !== null && typeof bucket === 'object' && !Array.isArray(bucket) && !Object.prototype.hasOwnProperty.call(bucket, name)) canMove = true;
+      }
+    }
+    if (canMove) {
+      if (!Object.prototype.hasOwnProperty.call(repaired, target)) setOwn(repaired, target, {});
+      setOwn(repaired[target], name, emptyBucket[name]);
+      movedAny = true;
+    } else {
+      setOwn(remaining, name, emptyBucket[name]);
+    }
+  }
+  if (Object.keys(remaining).length !== 0) setOwn(repaired, '', remaining);
+
+  if (!movedAny) return contracts;
+  return repaired;
+}
+
 function translateJsonCompilerOutput (output, libraries) {
   const ret: any = {};
 
@@ -149,6 +220,8 @@ function translateJsonCompilerOutput (output, libraries) {
     };
   }
 
+  ret.contracts = repairEmptyPathContracts(ret.contracts, ret.sources);
+
   return ret;
 }
 
@@ -195,6 +268,7 @@ function prettyPrintLegacyAssemblyJSON (assembly, source) {
 
 export = {
   versionToSemver,
+  repairEmptyPathContracts,
   translateJsonCompilerOutput,
   prettyPrintLegacyAssemblyJSON
 };
