@@ -59,3 +59,72 @@ tape('prettyPrintLegacyAssemblyJSON', function (t) {
     st.end();
   });
 });
+
+tape('Colon path repair in contracts output', function (t) {
+  t.test('No colon in any contract name returns the input unchanged', function (st) {
+    const contracts = { 'a.sol': { A: { x: 1 } }, 'b.sol': { B: { y: 2 } } };
+    st.equal(translate.repairColonPathsInContracts(contracts, ['a.sol', 'b.sol']), contracts);
+    st.end();
+  });
+
+  t.test('Mangled entry is repaired using the known source path', function (st) {
+    const contracts = { C: { '\\project\\a.sol:A': { x: 1 } }, 'b.sol': { B: { y: 2 } } };
+    const repaired = translate.repairColonPathsInContracts(contracts, ['C:\\project\\a.sol', 'b.sol']);
+    st.deepEqual(Object.keys(repaired).sort(), ['C:\\project\\a.sol', 'b.sol']);
+    st.deepEqual(Object.keys(repaired['C:\\project\\a.sol']), ['A']);
+    st.equal(repaired['C:\\project\\a.sol'].A.x, 1);
+    st.equal(repaired['b.sol'].B.y, 2);
+    st.end();
+  });
+
+  t.test('Path containing multiple colons is repaired at the last colon', function (st) {
+    const contracts = { a: { 'b:c.sol:G': { x: 1 } } };
+    const repaired = translate.repairColonPathsInContracts(contracts, ['a:b:c.sol']);
+    st.deepEqual(Object.keys(repaired), ['a:b:c.sol']);
+    st.deepEqual(Object.keys(repaired['a:b:c.sol']), ['G']);
+    st.end();
+  });
+
+  t.test('Path starting with a colon repairs to an empty outer key', function (st) {
+    const contracts = { '': { 'a.sol:A': { x: 1 } } };
+    const repaired = translate.repairColonPathsInContracts(contracts, [':a.sol']);
+    st.deepEqual(Object.keys(repaired), [':a.sol']);
+    st.deepEqual(Object.keys(repaired[':a.sol']), ['A']);
+    st.end();
+  });
+
+  t.test('Mangled entry that resolves to no known source is left untouched', function (st) {
+    const contracts = { C: { '\\project\\a.sol:A': { x: 1 } } };
+    const repaired = translate.repairColonPathsInContracts(contracts, ['other.sol']);
+    st.deepEqual(Object.keys(repaired), ['C']);
+    st.deepEqual(Object.keys(repaired.C), ['\\project\\a.sol:A']);
+    st.end();
+  });
+
+  t.test('Collision returns the original output unchanged (all-or-nothing)', function (st) {
+    // A repaired entry landing on an occupied key must not overwrite or
+    // drop data: refuse the whole repair instead.
+    const contracts = { x: { 'a.sol:B': { first: true } }, 'x:a.sol': { B: { second: true } } };
+    const repaired = translate.repairColonPathsInContracts(contracts, ['x:a.sol']);
+    st.equal(repaired, contracts);
+    st.equal(repaired.x['a.sol:B'].first, true);
+    st.equal(repaired['x:a.sol'].B.second, true);
+    st.end();
+  });
+
+  t.test('Non-object file bucket returns the input unchanged', function (st) {
+    const contracts = { 'a.sol': null, C: { '\\p\\a.sol:A': { x: 1 } } };
+    st.equal(translate.repairColonPathsInContracts(contracts, ['C:\\p\\a.sol']), contracts);
+    st.end();
+  });
+
+  t.test('Source named __proto__ does not pollute the prototype', function (st) {
+    // JSON.parse creates an own "__proto__" property; an object literal would not.
+    const contracts = JSON.parse('{"__proto__": {"a.sol:A": {"x": 1}}}');
+    const repaired = translate.repairColonPathsInContracts(contracts, ['__proto__:a.sol']);
+    st.ok(Object.prototype['a.sol'] === undefined);
+    st.deepEqual(Object.keys(repaired), ['__proto__:a.sol']);
+    st.equal(Object.keys(repaired['__proto__:a.sol'])[0], 'A');
+    st.end();
+  });
+});
