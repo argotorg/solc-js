@@ -367,6 +367,299 @@ function runTests (solc, versionText) {
         st.end();
       });
 
+      t.test('compiling standard JSON with named contract under wildcard source (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function') {
+          st.skip('Standard JSON interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        // https://github.com/argotorg/solc-js/issues/755: compiler versions
+        // <=0.5.8 return empty output when outputSelection uses `*` at the
+        // source level together with a specific contract name
+        // (https://github.com/ethereum/solidity/issues/14214).
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                A: ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract A { function f() public returns (uint) { return 7; } }'
+            }
+          }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        st.ok('contracts' in output, 'contracts returned');
+        st.ok('a.sol' in output.contracts, 'source returned');
+        st.ok('A' in output.contracts['a.sol'], 'contract returned');
+        st.ok(output.contracts['a.sol'].A.evm.bytecode.object.length > 0, 'bytecode not empty');
+        st.end();
+      });
+
+      t.test('compiling standard JSON with multiple sources and named contracts under wildcard source (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function') {
+          st.skip('Standard JSON interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                A: ['evm.bytecode'],
+                B: ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract A { function f() public returns (uint) { return 7; } }'
+            },
+            'b.sol': {
+              content: 'contract B { function g() public returns (uint) { return 8; } }'
+            }
+          }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        const errors = (output.errors || []).filter(function (error) { return error.severity === 'error'; });
+        st.deepEqual(errors, [], 'no compilation errors');
+        st.ok(output.contracts['a.sol'].A.evm.bytecode.object.length > 0, 'bytecode not empty for A');
+        st.ok(output.contracts['b.sol'].B.evm.bytecode.object.length > 0, 'bytecode not empty for B');
+        st.end();
+      });
+
+      t.test('compiling standard JSON with named contract under wildcard source via import callback (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function') {
+          st.skip('Standard JSON interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        // The imported file is not part of the input sources, so any
+        // workaround that only rewrites the listed sources cannot cover it.
+        function findImports (path) {
+          if (path === 'a.sol') {
+            return { contents: 'contract A { function f() public returns (uint) { return 7; } }' };
+          }
+          return { error: 'File not found' };
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                B: ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'b.sol': {
+              content: 'import "a.sol"; contract B { function g() public returns (uint) { return 8; } }'
+            }
+          }
+        };
+
+        // The named contract lives in the listed source; the import callback
+        // only supplies its dependency. (Named contracts in callback-supplied
+        // sources are outside the workaround's reach on affected versions and
+        // keep their previous behavior.)
+        const output = JSON.parse(solc.compile(JSON.stringify(input), { import: findImports }));
+        st.ok(output.contracts['b.sol'].B.evm.bytecode.object.length > 0, 'bytecode not empty for contract in listed source');
+        st.end();
+      });
+
+      t.test('compiling standard JSON with named contracts keeps output filtering exact (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function' || semver.lt(solc.semver(), '0.4.19')) {
+          st.skip('Compiler version does not implement contract level output selection.');
+          st.end();
+          return;
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                A: ['evm.bytecode'],
+                B: ['abi']
+              }
+            }
+          },
+          sources: {
+            'c.sol': {
+              content: 'contract A { function f() public returns (uint) { return 7; } } contract B { function g() public returns (uint) { return 8; } } contract C { function h() public returns (uint) { return 9; } }'
+            }
+          }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        if (semver.gte(solc.semver(), '0.5.9')) {
+          st.deepEqual(Object.keys(output.contracts['c.sol']).sort(), ['A', 'B'], 'only requested contracts returned');
+        } else {
+          // Affected versions also return unrequested contracts under a
+          // wildcard source selector; that pre-existing quirk is out of scope.
+          st.ok('A' in output.contracts['c.sol'] && 'B' in output.contracts['c.sol'], 'requested contracts returned');
+        }
+        st.ok(output.contracts['c.sol'].A.evm.bytecode.object.length > 0, 'bytecode not empty for A');
+        st.ok(Array.isArray(output.contracts['c.sol'].B.abi), 'abi returned for B');
+        if (semver.gte(solc.semver(), '0.5.9')) {
+          st.notOk('abi' in output.contracts['c.sol'].A, 'no unrequested outputs for A');
+          st.notOk('evm' in output.contracts['c.sol'].B, 'no unrequested outputs for B');
+        }
+        // On affected versions the compiler itself bleeds the requested
+        // outputs onto sibling contracts; that pre-existing quirk is out of
+        // scope for the workaround.
+        st.end();
+      });
+
+      t.test('compiling standard JSON with named contract does not codegen unrequested contracts (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function' || semver.lt(solc.semver(), '0.4.19')) {
+          st.skip('Compiler version does not implement contract level output selection.');
+          st.end();
+          return;
+        }
+
+        // Contract D always fails code generation with "stack too deep".
+        // Requesting only contract A must not fail because of D.
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                A: ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract A { function f() public returns (uint) { return 7; } }'
+            },
+            'd.sol': {
+              content: 'contract D { function f() public returns (uint r) { uint a1; uint a2; uint a3; uint a4; uint a5; uint a6; uint a7; uint a8; uint a9; uint a10; uint a11; uint a12; uint a13; uint a14; uint a15; uint a16; uint a17; uint a18; assembly { r := add(a1, add(a2, add(a3, add(a4, add(a5, add(a6, add(a7, add(a8, add(a9, add(a10, add(a11, add(a12, add(a13, add(a14, add(a15, add(a16, add(a17, a18))))))))))))))))) } } }'
+            }
+          }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        const errors = (output.errors || []).filter(function (error) { return error.severity === 'error'; });
+        st.deepEqual(errors, [], 'no compilation errors from unrequested contract');
+        st.ok(output.contracts['a.sol'].A.evm.bytecode.object.length > 0, 'bytecode not empty for A');
+        if (semver.gte(solc.semver(), '0.5.9')) {
+          st.notOk('d.sol' in (output.contracts || {}), 'unrequested contract not in output');
+        }
+        st.end();
+      });
+
+      t.test('malformed outputSelection is passed to the compiler unchanged (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function') {
+          st.skip('Standard JSON interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                A: 'evm.bytecode'
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract A { function f() public returns (uint) { return 7; } }'
+            }
+          }
+        };
+
+        // The workaround must leave malformed selections for the compiler
+        // instead of throwing a JavaScript error. How the compiler handles
+        // them is version specific: newer ones report a JSONError, old ones
+        // only warn. What matters is that the compiler's own response comes
+        // back unchanged.
+        let output;
+        try {
+          output = JSON.parse(solc.compile(JSON.stringify(input)));
+        } catch (e) {
+          st.fail('compile threw a JavaScript error: ' + e);
+          st.end();
+          return;
+        }
+        st.ok(output != null && typeof output === 'object', 'compiler returned a response');
+        st.ok('errors' in output || 'contracts' in output, 'response is a compiler output');
+        st.end();
+      });
+
+      t.test('missing, null or wrongly typed sources are passed to the compiler unchanged (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function') {
+          st.skip('Standard JSON interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        const variants = [
+          { language: 'Solidity', settings: { outputSelection: { '*': { A: ['evm.bytecode'] } } } },
+          { language: 'Solidity', settings: { outputSelection: { '*': { A: ['evm.bytecode'] } } }, sources: null },
+          { language: 'Solidity', settings: { outputSelection: { '*': { A: ['evm.bytecode'] } } }, sources: [] }
+        ];
+        for (const input of variants) {
+          let output;
+          try {
+            output = JSON.parse(solc.compile(JSON.stringify(input)));
+          } catch (e) {
+            st.fail('compile threw a JavaScript error: ' + e);
+            st.end();
+            return;
+          }
+          st.ok(output != null && typeof output === 'object', 'compiler returned a response');
+          st.ok('errors' in output || 'contracts' in output, 'response is a compiler output');
+        }
+        st.end();
+      });
+
+      t.test('contract names colliding with Object.prototype members compile (using high-level API)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function' || semver.lt(solc.semver(), '0.4.19')) {
+          st.skip('Compiler version does not implement contract level output selection.');
+          st.end();
+          return;
+        }
+
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                toString: ['evm.bytecode'],
+                valueOf: ['evm.bytecode'],
+                hasOwnProperty: ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract toString { function f() public returns (uint) { return 7; } } contract valueOf { function g() public returns (uint) { return 8; } } contract hasOwnProperty { function h() public returns (uint) { return 9; } }'
+            }
+          }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        st.ok(output.contracts['a.sol'].toString.evm.bytecode.object.length > 0, 'bytecode not empty for toString');
+        st.ok(output.contracts['a.sol'].valueOf.evm.bytecode.object.length > 0, 'bytecode not empty for valueOf');
+        st.ok(output.contracts['a.sol'].hasOwnProperty.evm.bytecode.object.length > 0, 'bytecode not empty for hasOwnProperty');
+        st.end();
+      });
+
       t.test('invalid source code fails properly with standard JSON (using lowlevel API)', function (st) {
         // TODO: try finding an example which doesn't crash it?
         if (semver.eq(solc.semver(), '0.4.11')) {
@@ -889,7 +1182,12 @@ if (!noRemoteVersions) {
     'v0.4.12+commit.194ff033',
     'v0.4.19+commit.c4cbbb05',
     'v0.4.20+commit.3155dd80',
-    'v0.4.26+commit.4563c3fc'
+    'v0.4.26+commit.4563c3fc',
+    // Boundary versions for the outputSelection wildcard workaround:
+    // last affected and first unaffected release
+    // (https://github.com/ethereum/solidity/issues/14214).
+    'v0.5.8+commit.23d335f2',
+    'v0.5.9+commit.e560f70d'
   ];
   for (let version in versions) {
     version = versions[version];

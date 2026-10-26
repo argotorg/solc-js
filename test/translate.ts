@@ -59,3 +59,140 @@ tape('prettyPrintLegacyAssemblyJSON', function (t) {
     st.end();
   });
 });
+
+tape('needsWildcardContractWorkaround', function (t) {
+  t.test('false for missing or malformed selection', function (st) {
+    st.notOk(translate.needsWildcardContractWorkaround(undefined));
+    st.notOk(translate.needsWildcardContractWorkaround(null));
+    st.notOk(translate.needsWildcardContractWorkaround({}));
+    st.end();
+  });
+  t.test('false for wildcard contract only', function (st) {
+    st.notOk(translate.needsWildcardContractWorkaround({ '*': { '*': ['evm.bytecode'] } }));
+    st.end();
+  });
+  t.test('false for source level outputs only', function (st) {
+    st.notOk(translate.needsWildcardContractWorkaround({ '*': { '': ['ast'] } }));
+    st.end();
+  });
+  t.test('false for named source with named contract', function (st) {
+    st.notOk(translate.needsWildcardContractWorkaround({ 'a.sol': { A: ['evm.bytecode'] } }));
+    st.end();
+  });
+  t.test('true for wildcard source with named contract', function (st) {
+    st.ok(translate.needsWildcardContractWorkaround({ '*': { A: ['evm.bytecode'] } }));
+    st.end();
+  });
+});
+
+tape('isWellFormedOutputSelection', function (t) {
+  t.test('true for well formed selections', function (st) {
+    st.ok(translate.isWellFormedOutputSelection({ '*': { '*': ['evm.bytecode'], '': ['ast'], A: ['abi'] }, 'a.sol': { B: [] } }));
+    st.end();
+  });
+  t.test('false for null, string, object or non-string-array values', function (st) {
+    st.notOk(translate.isWellFormedOutputSelection({ '*': { A: null } }));
+    st.notOk(translate.isWellFormedOutputSelection({ '*': { A: 'evm.bytecode' } }));
+    st.notOk(translate.isWellFormedOutputSelection({ '*': { A: { output: 'evm.bytecode' } } }));
+    st.notOk(translate.isWellFormedOutputSelection({ '*': { A: ['evm.bytecode', 1] } }));
+    st.notOk(translate.isWellFormedOutputSelection({ '*': ['evm.bytecode'] }));
+    st.notOk(translate.isWellFormedOutputSelection(null));
+    st.end();
+  });
+});
+
+tape('expandWildcardSourceSelection', function (t) {
+  t.test('named contracts are mirrored to every source and wildcard entry is kept', function (st) {
+    const input = {
+      settings: { outputSelection: { '*': { A: ['evm.bytecode'] } } },
+      sources: { 'a.sol': { content: '' }, 'b.sol': { content: '' } }
+    };
+    const expanded = translate.expandWildcardSourceSelection(input);
+    st.deepEqual(expanded.settings.outputSelection, {
+      '*': { A: ['evm.bytecode'] },
+      'a.sol': { A: ['evm.bytecode'] },
+      'b.sol': { A: ['evm.bytecode'] }
+    });
+    st.end();
+  });
+  t.test('wildcard contract and source level selectors are not mirrored', function (st) {
+    const input = {
+      settings: { outputSelection: { '*': { '*': ['metadata'], '': ['ast'], A: ['evm.bytecode'] } } },
+      sources: { 'a.sol': { content: '' } }
+    };
+    const expanded = translate.expandWildcardSourceSelection(input);
+    st.deepEqual(expanded.settings.outputSelection, {
+      '*': { '*': ['metadata'], '': ['ast'], A: ['evm.bytecode'] },
+      'a.sol': { A: ['evm.bytecode'] }
+    });
+    st.end();
+  });
+  t.test('existing explicit entries are merged with unioned outputs', function (st) {
+    const input = {
+      settings: { outputSelection: { '*': { A: ['evm.bytecode'] }, 'a.sol': { A: ['abi'], B: ['abi'] } } },
+      sources: { 'a.sol': { content: '' } }
+    };
+    const expanded = translate.expandWildcardSourceSelection(input);
+    st.deepEqual(expanded.settings.outputSelection, {
+      '*': { A: ['evm.bytecode'] },
+      'a.sol': { A: ['abi', 'evm.bytecode'], B: ['abi'] }
+    });
+    st.end();
+  });
+  t.test('original input is not modified', function (st) {
+    const input = {
+      settings: { outputSelection: { '*': { A: ['evm.bytecode'] } } },
+      sources: { 'a.sol': { content: '' } }
+    };
+    translate.expandWildcardSourceSelection(input);
+    st.deepEqual(input.settings.outputSelection, { '*': { A: ['evm.bytecode'] } });
+    st.end();
+  });
+});
+
+tape('expandWildcardSourceSelection hardening', function (t) {
+  t.test('contract names colliding with Object.prototype members are handled', function (st) {
+    // Built via JSON.parse: in an object literal "__proto__" would set the
+    // prototype instead of creating an own property.
+    const input = JSON.parse('{"settings":{"outputSelection":{"*":{"toString":["abi"],"valueOf":["abi"],"hasOwnProperty":["abi"],"constructor":["abi"],"__proto__":["abi"]}}},"sources":{"a.sol":{"content":""}}}');
+    const expanded = translate.expandWildcardSourceSelection(input);
+    const selection = expanded.settings.outputSelection;
+    st.ok(Object.prototype.hasOwnProperty.call(selection['a.sol'], 'toString'), 'toString present as own key');
+    st.deepEqual(selection['a.sol'].toString, ['abi']);
+    st.deepEqual(selection['a.sol'].valueOf, ['abi']);
+    st.deepEqual(selection['a.sol'].hasOwnProperty, ['abi']);
+    st.deepEqual(selection['a.sol'].constructor, ['abi']);
+    st.deepEqual(Reflect.get(selection['a.sol'], '__proto__'), ['abi'], '__proto__ stored as own value, not prototype');
+    st.end();
+  });
+
+  t.test('file name __proto__ is stored as own key without pollution', function (st) {
+    const input = JSON.parse('{"settings":{"outputSelection":{"*":{"A":["abi"]}}},"sources":{"__proto__":{"content":""},"a.sol":{"content":""}}}');
+    const expanded = translate.expandWildcardSourceSelection(input);
+    const selection = expanded.settings.outputSelection;
+    st.ok(Object.prototype.hasOwnProperty.call(selection, '__proto__'), '__proto__ file entry exists as own key');
+    st.deepEqual(Reflect.get(selection, '__proto__'), { A: ['abi'] });
+    st.notOk(Object.prototype.hasOwnProperty.call({}, 'A'), 'no prototype pollution on plain objects');
+    st.end();
+  });
+
+  t.test('merging with an existing __proto__-named contract entry', function (st) {
+    const input = JSON.parse('{"settings":{"outputSelection":{"*":{"__proto__":["evm.bytecode"]},"a.sol":{"__proto__":["abi"]}}},"sources":{"a.sol":{"content":""}}}');
+    const expanded = translate.expandWildcardSourceSelection(input);
+    st.deepEqual(Reflect.get(expanded.settings.outputSelection['a.sol'], '__proto__'), ['abi', 'evm.bytecode']);
+    st.end();
+  });
+
+  t.test('serialization round trip preserves the expanded selection', function (st) {
+    const input = {
+      settings: { outputSelection: { '*': { toString: ['abi'] } } },
+      sources: { 'a.sol': { content: '' } }
+    };
+    const expanded = translate.expandWildcardSourceSelection(input);
+    st.deepEqual(JSON.parse(JSON.stringify(expanded)).settings.outputSelection, {
+      '*': { toString: ['abi'] },
+      'a.sol': { toString: ['abi'] }
+    });
+    st.end();
+  });
+});

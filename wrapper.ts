@@ -1,4 +1,5 @@
 import MemoryStream from 'memorystream';
+import * as semver from 'semver';
 import { https } from 'follow-redirects';
 
 import { formatFatalError } from './formatters';
@@ -31,7 +32,7 @@ function wrapper (soljson) {
       importCallback: methodFlags.compileJsonCallbackSuppported || methodFlags.compileJsonStandardSupported,
       nativeStandardJSON: methodFlags.compileJsonStandardSupported
     },
-    compile: compileStandardWrapper.bind(this, compileBindings),
+    compile: compileStandardWrapper.bind(this, compileBindings, coreBindings.versionToSemver),
     // Loads the compiler of the given version from the github repository
     // instead of from the local filesystem.
     loadRemoteVersion,
@@ -69,8 +70,11 @@ function loadRemoteVersion (versionString, callback) {
 }
 
 // Expects a Standard JSON I/O but supports old compilers
-function compileStandardWrapper (compile, inputRaw, readCallback) {
+function compileStandardWrapper (compile, version, inputRaw, readCallback) {
   if (!isNil(compile.compileStandard)) {
+    if (isAffectedByWildcardSelectionBug(version)) {
+      return compileStandardWithWildcardWorkaround(compile, inputRaw, readCallback);
+    }
     return compile.compileStandard(inputRaw, readCallback);
   }
 
@@ -123,6 +127,44 @@ function compileStandardWrapper (compile, inputRaw, readCallback) {
   }
 
   return formatFatalError('Compiler does not support any known interface.');
+}
+
+// Compiler versions <=0.5.8 return empty output for outputSelection entries
+// using `*` at the source level with named contracts
+// (https://github.com/ethereum/solidity/issues/14214).
+function isAffectedByWildcardSelectionBug (version) {
+  try {
+    return semver.lt(version(), '0.5.9');
+  } catch (e) {
+    return false;
+  }
+}
+
+// Compiler versions <=0.5.8 return empty output for named contract selectors
+// under a `*` source selector. Mirror those selectors into explicit per-source
+// entries (which works on all versions and never selects unrequested
+// contracts). The `*` selector is left untouched, so behavior for sources
+// outside the input (e.g. import callback supplied) is unchanged.
+function compileStandardWithWildcardWorkaround (compile, inputRaw, readCallback) {
+  let input;
+  try {
+    input = JSON.parse(inputRaw);
+  } catch (e) {
+    // Let the compiler itself report invalid input.
+    return compile.compileStandard(inputRaw, readCallback);
+  }
+  const outputSelection = input != null && input.settings != null ? input.settings.outputSelection : undefined;
+  const sources = input != null ? input.sources : undefined;
+  if (
+    !translate.needsWildcardContractWorkaround(outputSelection) ||
+    !translate.isWellFormedOutputSelection(outputSelection) ||
+    sources == null || typeof sources !== 'object' || Array.isArray(sources)
+  ) {
+    // Anything unexpected is left for the compiler itself to report.
+    return compile.compileStandard(inputRaw, readCallback);
+  }
+  const expandedInput = translate.expandWildcardSourceSelection(input);
+  return compile.compileStandard(JSON.stringify(expandedInput), readCallback);
 }
 
 function isOptimizerEnabled (input) {
