@@ -64,6 +64,17 @@ as a string.  It cannot be used together with callback-based, asynchronous,
 filesystem access. A workaround is to collect the names of dependencies, return
 an error, and keep re-running the compiler until all of them are resolved.
 
+**Note:** Compiler versions <=0.5.8 silently return empty output when `outputSelection`
+uses `"*"` at the source level together with specific contract names
+([ethereum/solidity#14214](https://github.com/ethereum/solidity/issues/14214)).
+`compile()` works around this for those compiler versions by mirroring the
+named contract selectors into explicit entries for every input source, which
+produces the same output as unaffected compilers without selecting any
+contract that was not requested. Sources supplied only through the import
+callback are out of the workaround's reach and keep their previous behavior.
+The workaround is not applied to `solc.lowlevel.compileStandard`, which passes
+the input through unchanged.
+
 #### Example usage without the import callback
 
 Example:

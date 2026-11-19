@@ -193,8 +193,113 @@ function prettyPrintLegacyAssemblyJSON (assembly, source) {
   return formatAssemblyText(assembly, '', source);
 }
 
+/// Workaround for https://github.com/argotorg/solc-js/issues/755
+/// (https://github.com/ethereum/solidity/issues/14214):
+/// compiler versions <=0.5.8 return empty output when the outputSelection
+/// uses `*` at the source level together with specific contract names.
+/// Adding an explicit source entry for such a contract makes the compiler
+/// produce the requested output, so the workaround mirrors the named contract
+/// selectors of the `*` source selector into explicit entries for every input
+/// source. The `*` selector itself is left untouched: files outside the input
+/// sources (e.g. supplied through the import callback) behave exactly as
+/// before, and no contract that was not requested is ever selected, so the
+/// workaround cannot trigger additional code generation (which could fail,
+/// e.g. with "stack too deep", for contracts the user never asked for).
+
+/// True when the outputSelection contains a `*` source selector together with
+/// a named contract selector, i.e. the pattern that triggers the bug.
+function needsWildcardContractWorkaround (outputSelection) {
+  if (outputSelection == null || typeof outputSelection !== 'object') {
+    return false;
+  }
+  const wildcardSelection = outputSelection['*'];
+  if (wildcardSelection == null || typeof wildcardSelection !== 'object') {
+    return false;
+  }
+  return Object.keys(wildcardSelection).some(function (contract) {
+    return contract !== '*' && contract !== '';
+  });
+}
+
+/// True when every entry of the outputSelection is well formed, i.e. maps
+/// source selectors to objects mapping contract selectors to arrays of
+/// output names. Malformed selections are left for the compiler to reject,
+/// so that its own error reporting is preserved.
+function isWellFormedOutputSelection (outputSelection) {
+  if (outputSelection == null || typeof outputSelection !== 'object' || Array.isArray(outputSelection)) {
+    return false;
+  }
+  for (const fileSelector of Object.keys(outputSelection)) {
+    const contractSelection = outputSelection[fileSelector];
+    if (contractSelection == null || typeof contractSelection !== 'object' || Array.isArray(contractSelection)) {
+      return false;
+    }
+    for (const contractSelector of Object.keys(contractSelection)) {
+      const outputs = contractSelection[contractSelector];
+      if (!Array.isArray(outputs) || outputs.some(function (output) { return typeof output !== 'string'; })) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/// Returns a new standard JSON input where the named contract selectors of
+/// the `*` source selector are mirrored into explicit entries for every input
+/// source. Existing explicit entries are kept and merged (the compiler unions
+/// the outputs of all matching selectors). Only call this when
+/// needsWildcardContractWorkaround and isWellFormedOutputSelection are true.
+///
+/// All dictionaries created here use a null prototype and only own keys are
+/// enumerated, so that contract or file names colliding with Object.prototype
+/// members (e.g. "toString", "constructor", "__proto__" - all valid Solidity
+/// identifiers or legal JSON keys) cannot corrupt the expansion.
+function expandWildcardSourceSelection (input) {
+  const expanded = JSON.parse(JSON.stringify(input));
+  const outputSelection = expanded.settings.outputSelection;
+  const wildcardSelection = outputSelection['*'];
+  const namedContracts = Object.create(null);
+  for (const contract of Object.keys(wildcardSelection)) {
+    if (contract !== '*' && contract !== '') {
+      namedContracts[contract] = wildcardSelection[contract];
+    }
+  }
+  // Rebuild the selection on a null-prototype object: assigning a "__proto__"
+  // file key to a plain object would invoke its setter and pollute it.
+  const newSelection = Object.create(null);
+  for (const fileSelector of Object.keys(outputSelection)) {
+    newSelection[fileSelector] = outputSelection[fileSelector];
+  }
+  for (const fileName of Object.keys(expanded.sources)) {
+    const existing = newSelection[fileName];
+    const merged = Object.create(null);
+    if (existing != null && typeof existing === 'object') {
+      for (const contract of Object.keys(existing)) {
+        merged[contract] = existing[contract].slice();
+      }
+    }
+    for (const contract of Object.keys(namedContracts)) {
+      if (merged[contract] === undefined) {
+        merged[contract] = namedContracts[contract].slice();
+      } else {
+        for (const output of namedContracts[contract]) {
+          if (!merged[contract].includes(output)) {
+            merged[contract].push(output);
+          }
+        }
+      }
+    }
+    newSelection[fileName] = merged;
+  }
+  expanded.settings.outputSelection = newSelection;
+  return expanded;
+}
+
 export = {
   versionToSemver,
   translateJsonCompilerOutput,
-  prettyPrintLegacyAssemblyJSON
+  prettyPrintLegacyAssemblyJSON,
+  needsWildcardContractWorkaround,
+  isWellFormedOutputSelection,
+  expandWildcardSourceSelection
 };
