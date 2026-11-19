@@ -258,6 +258,15 @@ You can extract the long version string for each version from the [publicly avai
 solc.loadRemoteVersion('v0.8.17+commit.8df45f5f', function(err, solcSnapshot) { /* ... */ });
 ```
 
+A failed download can optionally be retried by passing an options object between the version and the callback:
+
+```javascript
+solc.loadRemoteVersion('v0.8.17+commit.8df45f5f', { retries: 2, retryDelay: 1000 }, function(err, solcSnapshot) { /* ... */ });
+```
+
+- `retries` (default `0`): how many times a failed download is retried before giving up. Must be a non-negative safe integer.
+- `retryDelay` (default `1000`): delay in milliseconds between attempts. Must be a finite number between 0 and 2^31-1.
+
 ### Linking Bytecode
 
 When using libraries, the resulting bytecode will contain placeholders for the real addresses of the referenced libraries. These have to be updated, via a process called linking, before deploying the contract.
