@@ -26,7 +26,7 @@ export function getSupportedMethods (solJson) {
     resetSupported: anyMethodExists(solJson, 'solidity_reset'),
     compileJsonSupported: anyMethodExists(solJson, 'compileJSON'),
     compileJsonMultiSupported: anyMethodExists(solJson, 'compileJSONMulti'),
-    compileJsonCallbackSuppported: anyMethodExists(solJson, 'compileJSONCallback'),
+    compileJsonCallbackSupported: anyMethodExists(solJson, 'compileJSONCallback'),
     compileJsonStandardSupported: anyMethodExists(solJson, 'compileStandard', 'solidity_compile')
   };
 }
