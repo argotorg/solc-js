@@ -41,7 +41,7 @@ when it's placed in these exact absolute locations.
 
 Note: this commandline interface is not compatible with `solc` provided by the Solidity compiler package and thus cannot be
 used in combination with an Ethereum client via the `eth.compile.solidity()` RPC method. Please refer to the
-[Solidity compiler documentation](https://solidity.readthedocs.io/) for instructions to install `solc`.
+[Solidity compiler documentation](https://docs.soliditylang.org/) for instructions to install `solc`.
 Furthermore, the commandline interface to solc-js provides fewer features than the binary release.
 
 ### Usage in Projects
