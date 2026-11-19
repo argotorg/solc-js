@@ -1,6 +1,7 @@
 import * as semver from 'semver';
+import { ABIDescription, isError, isEvent } from './common/compiler-output';
 
-function update (compilerVersion, abi) {
+function update (compilerVersion, abi: ABIDescription[]) {
   let hasConstructor = false;
   let hasFallback = false;
 
@@ -18,7 +19,7 @@ function update (compilerVersion, abi) {
       hasFallback = true;
     }
 
-    if (item.type !== 'event') {
+    if (!isEvent(item) && !isError(item)) {
       // add 'payable' to everything, except constant functions
       if (!item.constant && semver.lt(compilerVersion, '0.4.0')) {
         item.payable = true;
