@@ -66,9 +66,13 @@ commands:
         type: string
         default: package.json
     steps:
+      - run:
+          name: "Check latest versions of dependencies"
+          command: |
+            npm outdated --json > "<<parameters.path>>/outdated-packages.json" || true
       - restore_cache:
           name: "Restoring <<parameters.cache-id>> cache"
-          key: <<parameters.cache-id>>-dependency-cache-v5-{{ .Environment.CIRCLE_JOB }}-{{ checksum "<<parameters.path>>/<<parameters.dependency-file>>" }}
+          key: <<parameters.cache-id>>-dependency-cache-v6-{{ .Environment.CIRCLE_JOB }}-{{ checksum "<<parameters.path>>/<<parameters.dependency-file>>" }}-{{ checksum "<<parameters.path>>/outdated-packages.json" }}
       - run:
           name: "<<parameters.package-manager>> install in <<parameters.path>>"
           command: |
@@ -83,9 +87,10 @@ commands:
             fi
       - save_cache:
           name: "Saving <<parameters.cache-id>> cache"
-          key: <<parameters.cache-id>>-dependency-cache-v5-{{ .Environment.CIRCLE_JOB }}-{{ checksum "<<parameters.path>>/<<parameters.dependency-file>>" }}
+          key: <<parameters.cache-id>>-dependency-cache-v6-{{ .Environment.CIRCLE_JOB }}-{{ checksum "<<parameters.path>>/<<parameters.dependency-file>>" }}-{{ checksum "<<parameters.path>>/outdated-packages.json" }}
           paths:
             - "<<parameters.path>>/node_modules/"
+      - run: rm "<<parameters.path>>/outdated-packages.json"
 
   inject-solc-js-tarball:
     description: "Recursively finds and replaces all instances of solc-js module installed in node_modules/ with the one from a tarball."
