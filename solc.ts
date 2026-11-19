@@ -123,136 +123,153 @@ function reformatJsonIfRequested (inputJson) {
 let callbacks;
 if (options.basePath || !options.standardJson) { callbacks = { import: readFileCallback }; }
 
-if (options.standardJson) {
-  const input = fs.readFileSync(process.stdin.fd).toString('utf8');
-  if (program.verbose) { console.log('>>> Compiling:\n' + reformatJsonIfRequested(input) + '\n'); }
-  let output = reformatJsonIfRequested(solc.compile(input, callbacks));
-
-  try {
-    if (smtsolver.availableSolvers.length === 0) {
-      console.log('>>> Cannot retry compilation with SMT because there are no SMT solvers available.');
-    } else {
-      const inputJSON = smtchecker.handleSMTQueries(JSON.parse(input), JSON.parse(output), smtsolver.smtSolver, smtsolver.availableSolvers[0]);
-      if (inputJSON) {
-        if (program.verbose) { console.log('>>> Retrying compilation with SMT:\n' + toFormattedJson(inputJSON) + '\n'); }
-        output = reformatJsonIfRequested(solc.compile(JSON.stringify(inputJSON), callbacks));
-      }
-    }
-  } catch (e) {
-    const addError = {
-      component: 'general',
-      formattedMessage: e.toString(),
-      message: e.toString(),
-      type: 'Warning'
-    };
-
-    const outputJSON = JSON.parse(output);
-    if (!outputJSON.errors) {
-      outputJSON.errors = [];
-    }
-    outputJSON.errors.push(addError);
-    output = toFormattedJson(outputJSON);
-  }
-
-  if (program.verbose) { console.log('>>> Compilation result:'); }
-  console.log(output);
-  process.exit(0);
-} else if (files.length === 0) {
-  console.error('Must provide a file');
-  process.exit(1);
-}
-
-if (!(options.bin || options.abi)) {
-  abort('Invalid option selected, must specify either --bin or --abi');
-}
-
-if (!options.basePath && options.includePath && options.includePath.length > 0) {
-  abort('--include-path option requires a non-empty base path.');
-}
-
-if (options.includePath) {
-  for (const includePath of options.includePath) {
-    if (!includePath) { abort('Empty values are not allowed in --include-path.'); }
-  }
-}
-
-const sources = {};
-
-for (let i = 0; i < files.length; i++) {
-  try {
-    sources[makeSourcePathRelativeIfPossible(files[i])] = {
-      content: fs.readFileSync(files[i]).toString()
-    };
-  } catch (e) {
-    abort('Error reading ' + files[i] + ': ' + e);
-  }
-}
-
-const cliInput = {
-  language: 'Solidity',
-  settings: {
-    optimizer: {
-      enabled: options.optimize,
-      runs: options.optimizeRuns
-    },
-    outputSelection: {
-      '*': {
-        '*': ['abi', 'evm.bytecode']
-      }
-    }
-  },
-  sources: sources
-};
-if (program.verbose) { console.log('>>> Compiling:\n' + toFormattedJson(cliInput) + '\n'); }
-const output = JSON.parse(solc.compile(JSON.stringify(cliInput), callbacks));
-
-let hasError = false;
-
-if (!output) {
-  abort('No output from compiler');
-} else if (output.errors) {
-  for (const error in output.errors) {
-    const message = output.errors[error];
-    if (message.severity === 'warning') {
-      console.log(message.formattedMessage);
-    } else {
-      console.error(message.formattedMessage);
-      hasError = true;
-    }
-  }
-}
-
-fs.mkdirSync(destination, { recursive: true });
-
-function writeFile (file, content) {
-  file = path.join(destination, file);
-  fs.writeFile(file, content, function (err) {
-    if (err) {
-      console.error('Failed to write ' + file + ': ' + err);
-    }
+function readStandardJsonInputFromStdin (): Promise<string> {
+  // NOTE: fs.readFileSync(process.stdin.fd) is not used here because it can fail with EAGAIN
+  // when stdin is a pipe that has no data available yet at the moment of the (synchronous) read.
+  // See https://github.com/nodejs/node/issues/7439 for the underlying node.js limitation.
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (chunk) => chunks.push(chunk));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    process.stdin.on('error', reject);
   });
 }
 
-for (const fileName in output.contracts) {
-  for (const contractName in output.contracts[fileName]) {
-    let contractFileName = fileName + ':' + contractName;
-    contractFileName = contractFileName.replace(/[:./\\]/g, '_');
+(async (): Promise<void> => {
+  if (options.standardJson) {
+    const input = await readStandardJsonInputFromStdin();
+    if (program.verbose) { console.log('>>> Compiling:\n' + reformatJsonIfRequested(input) + '\n'); }
+    let output = reformatJsonIfRequested(solc.compile(input, callbacks));
 
-    if (options.bin) {
-      writeFile(contractFileName + '.bin', output.contracts[fileName][contractName].evm.bytecode.object);
+    try {
+      if (smtsolver.availableSolvers.length === 0) {
+        console.log('>>> Cannot retry compilation with SMT because there are no SMT solvers available.');
+      } else {
+        const inputJSON = smtchecker.handleSMTQueries(JSON.parse(input), JSON.parse(output), smtsolver.smtSolver, smtsolver.availableSolvers[0]);
+        if (inputJSON) {
+          if (program.verbose) { console.log('>>> Retrying compilation with SMT:\n' + toFormattedJson(inputJSON) + '\n'); }
+          output = reformatJsonIfRequested(solc.compile(JSON.stringify(inputJSON), callbacks));
+        }
+      }
+    } catch (e) {
+      const addError = {
+        component: 'general',
+        formattedMessage: e.toString(),
+        message: e.toString(),
+        type: 'Warning'
+      };
+
+      const outputJSON = JSON.parse(output);
+      if (!outputJSON.errors) {
+        outputJSON.errors = [];
+      }
+      outputJSON.errors.push(addError);
+      output = toFormattedJson(outputJSON);
     }
 
-    if (options.abi) {
-      writeFile(contractFileName + '.abi', toFormattedJson(output.contracts[fileName][contractName].abi));
+    if (program.verbose) { console.log('>>> Compilation result:'); }
+    console.log(output);
+    process.exit(0);
+  } else if (files.length === 0) {
+    console.error('Must provide a file');
+    process.exit(1);
+  }
+
+  if (!(options.bin || options.abi)) {
+    abort('Invalid option selected, must specify either --bin or --abi');
+  }
+
+  if (!options.basePath && options.includePath && options.includePath.length > 0) {
+    abort('--include-path option requires a non-empty base path.');
+  }
+
+  if (options.includePath) {
+    for (const includePath of options.includePath) {
+      if (!includePath) { abort('Empty values are not allowed in --include-path.'); }
     }
   }
-}
 
-// Put back original exception handlers.
-originalUncaughtExceptionListeners.forEach(function (listener) {
-  process.addListener('uncaughtException', listener);
-});
+  const sources = {};
 
-if (hasError) {
+  for (let i = 0; i < files.length; i++) {
+    try {
+      sources[makeSourcePathRelativeIfPossible(files[i])] = {
+        content: fs.readFileSync(files[i]).toString()
+      };
+    } catch (e) {
+      abort('Error reading ' + files[i] + ': ' + e);
+    }
+  }
+
+  const cliInput = {
+    language: 'Solidity',
+    settings: {
+      optimizer: {
+        enabled: options.optimize,
+        runs: options.optimizeRuns
+      },
+      outputSelection: {
+        '*': {
+          '*': ['abi', 'evm.bytecode']
+        }
+      }
+    },
+    sources: sources
+  };
+  if (program.verbose) { console.log('>>> Compiling:\n' + toFormattedJson(cliInput) + '\n'); }
+  const output = JSON.parse(solc.compile(JSON.stringify(cliInput), callbacks));
+
+  let hasError = false;
+
+  if (!output) {
+    abort('No output from compiler');
+  } else if (output.errors) {
+    for (const error in output.errors) {
+      const message = output.errors[error];
+      if (message.severity === 'warning') {
+        console.log(message.formattedMessage);
+      } else {
+        console.error(message.formattedMessage);
+        hasError = true;
+      }
+    }
+  }
+
+  fs.mkdirSync(destination, { recursive: true });
+
+  function writeFile (file, content) {
+    file = path.join(destination, file);
+    fs.writeFile(file, content, function (err) {
+      if (err) {
+        console.error('Failed to write ' + file + ': ' + err);
+      }
+    });
+  }
+
+  for (const fileName in output.contracts) {
+    for (const contractName in output.contracts[fileName]) {
+      let contractFileName = fileName + ':' + contractName;
+      contractFileName = contractFileName.replace(/[:./\\]/g, '_');
+
+      if (options.bin) {
+        writeFile(contractFileName + '.bin', output.contracts[fileName][contractName].evm.bytecode.object);
+      }
+
+      if (options.abi) {
+        writeFile(contractFileName + '.abi', toFormattedJson(output.contracts[fileName][contractName].abi));
+      }
+    }
+  }
+
+  // Put back original exception handlers.
+  originalUncaughtExceptionListeners.forEach(function (listener) {
+    process.addListener('uncaughtException', listener);
+  });
+
+  if (hasError) {
+    process.exit(1);
+  }
+})().catch((error) => {
+  console.error('Unexpected error: ' + error);
   process.exit(1);
-}
+});
