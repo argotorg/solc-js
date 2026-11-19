@@ -1,6 +1,7 @@
 import MemoryStream from 'memorystream';
 import { https } from 'follow-redirects';
 
+import * as semver from 'semver';
 import { formatFatalError } from './formatters';
 import { isNil } from './common/helpers';
 import setupBindings from './bindings';
@@ -31,7 +32,7 @@ function wrapper (soljson) {
       importCallback: methodFlags.compileJsonCallbackSuppported || methodFlags.compileJsonStandardSupported,
       nativeStandardJSON: methodFlags.compileJsonStandardSupported
     },
-    compile: compileStandardWrapper.bind(this, compileBindings),
+    compile: compileStandardWrapper.bind(this, compileBindings, coreBindings.versionToSemver),
     // Loads the compiler of the given version from the github repository
     // instead of from the local filesystem.
     loadRemoteVersion,
@@ -69,8 +70,11 @@ function loadRemoteVersion (versionString, callback) {
 }
 
 // Expects a Standard JSON I/O but supports old compilers
-function compileStandardWrapper (compile, inputRaw, readCallback) {
+function compileStandardWrapper (compile, version, inputRaw, readCallback) {
   if (!isNil(compile.compileStandard)) {
+    if (isAffectedByColonPathBug(version)) {
+      return compileStandardWithColonPathRepair(compile, inputRaw, readCallback);
+    }
     return compile.compileStandard(inputRaw, readCallback);
   }
 
@@ -142,6 +146,49 @@ function translateSources (input) {
   }
 
   return sources;
+}
+
+// Compilers older than 0.4.20 misparse source paths containing a colon
+// when producing the contracts output
+// (https://github.com/argotorg/solc-js/issues/557).
+function isAffectedByColonPathBug (version) {
+  try {
+    return semver.lt(version(), '0.4.20');
+  } catch (e) {
+    // On unparseable versions do not touch the input or output.
+    return false;
+  }
+}
+
+function compileStandardWithColonPathRepair (compile, inputRaw, readCallback) {
+  const outputRaw = compile.compileStandard(inputRaw, readCallback);
+
+  let input;
+  let output;
+  try {
+    input = JSON.parse(inputRaw);
+  } catch (e) {
+    // Let the compiler's own error reporting stand.
+    return outputRaw;
+  }
+  try {
+    output = JSON.parse(outputRaw);
+  } catch (e) {
+    return outputRaw;
+  }
+
+  if (isNil(output) || isNil(output.contracts)) {
+    return outputRaw;
+  }
+
+  const sourcePaths = (!isNil(input) && !isNil(input.sources)) ? Object.keys(input.sources) : [];
+  const contracts = translate.repairColonPathsInContracts(output.contracts, sourcePaths);
+  if (contracts === output.contracts) {
+    return outputRaw;
+  }
+
+  output.contracts = contracts;
+  return JSON.stringify(output);
 }
 
 function librariesSupplied (input) {

@@ -189,6 +189,60 @@ function formatAssemblyText (asm, prefix, source) {
   return text;
 }
 
+/// Compilers older than 0.4.20 split source paths at the first colon when
+/// producing the contracts output: "C:\project\a.sol" is reported as
+/// file "C" with a "contract" named "\project\a.sol:A"
+/// (https://github.com/argotorg/solc-js/issues/557). Solidity identifiers
+/// cannot contain a colon, so the contract name is everything after the
+/// LAST colon of the mangled name, and the source path is the outer key
+/// plus the remainder before it. Entries that do not resolve to a known
+/// input source (e.g. files supplied only through the import callback)
+/// are left untouched. The repair is all-or-nothing: if two entries would
+/// land on the same key, the original output is returned unchanged so no
+/// compiler data is ever dropped or overwritten.
+function repairColonPathsInContracts (contracts, sourcePaths) {
+  // Anything but plain path -> name -> contract mappings is left to the
+  // compiler's own error reporting.
+  for (const file of Object.keys(contracts)) {
+    if (contracts[file] === null || typeof contracts[file] !== 'object') return contracts;
+  }
+
+  let mangled = false;
+  for (const file of Object.keys(contracts)) {
+    for (const name of Object.keys(contracts[file])) {
+      if (name.indexOf(':') !== -1) {
+        mangled = true;
+        break;
+      }
+    }
+    if (mangled) break;
+  }
+  if (!mangled) return contracts;
+
+  const repaired = Object.create(null);
+  for (const file of Object.keys(contracts)) {
+    for (const name of Object.keys(contracts[file])) {
+      let path = file;
+      let contractName = name;
+      const lastColon = name.lastIndexOf(':');
+      if (lastColon !== -1) {
+        const candidate = file + ':' + name.slice(0, lastColon);
+        if (sourcePaths.indexOf(candidate) !== -1) {
+          path = candidate;
+          contractName = name.slice(lastColon + 1);
+        }
+      }
+      if (repaired[path] === undefined) repaired[path] = Object.create(null);
+      if (repaired[path][contractName] !== undefined) {
+        // Ambiguous mapping: refuse to repair rather than lose data.
+        return contracts;
+      }
+      repaired[path][contractName] = contracts[file][name];
+    }
+  }
+  return repaired;
+}
+
 function prettyPrintLegacyAssemblyJSON (assembly, source) {
   return formatAssemblyText(assembly, '', source);
 }
@@ -196,5 +250,6 @@ function prettyPrintLegacyAssemblyJSON (assembly, source) {
 export = {
   versionToSemver,
   translateJsonCompilerOutput,
+  repairColonPathsInContracts,
   prettyPrintLegacyAssemblyJSON
 };

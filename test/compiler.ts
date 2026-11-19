@@ -1,4 +1,3 @@
-import assert from 'assert';
 import tape from 'tape';
 import * as semver from 'semver';
 import * as tmp from 'tmp';
@@ -11,16 +10,6 @@ const noRemoteVersions = (process.argv.indexOf('--no-remote-versions') >= 0);
 
 function runTests (solc, versionText) {
   console.log(`Running tests with ${versionText} ${solc.version()}`);
-
-  function resplitFileNameOnFirstColon (fileName, contractName) {
-    assert(!contractName.includes(':'));
-
-    const contractNameComponents = fileName.split(':');
-    const truncatedFileName = contractNameComponents.shift();
-    contractNameComponents.push(contractName);
-
-    return [truncatedFileName, contractNameComponents.join(':')];
-  }
 
   function getBytecode (output, fileName, contractName) {
     try {
@@ -42,9 +31,6 @@ function runTests (solc, versionText) {
       if (semver.lt(solc.semver(), '0.4.9')) {
         outputFile = output.contracts[''];
       } else {
-        if (semver.gt(solc.semver(), '0.4.10') && semver.lt(solc.semver(), '0.4.20')) {
-          [fileName, contractName] = resplitFileNameOnFirstColon(fileName, contractName);
-        }
         outputFile = output.contracts[fileName];
       }
       return outputFile[contractName].evm.bytecode.object;
@@ -59,9 +45,6 @@ function runTests (solc, versionText) {
       if (semver.lt(solc.semver(), '0.4.9')) {
         outputFile = output.contracts[''];
       } else {
-        if (semver.gt(solc.semver(), '0.4.10') && semver.gt(solc.semver(), '0.4.20')) {
-          [fileName, contractName] = resplitFileNameOnFirstColon(fileName, contractName);
-        }
         outputFile = output.contracts[fileName];
       }
       return outputFile[contractName].evm.gasEstimates;
@@ -828,6 +811,45 @@ function runTests (solc, versionText) {
         const G = getBytecodeStandard(output, 'a:b:c:d:e:f:G.sol', 'G');
         st.ok(typeof G === 'string');
         st.ok(G.length > 0);
+        st.end();
+      });
+
+      t.test('compiling standard JSON (contracts output has correct keys for file names containing a colon)', function (st) {
+        if (!solc.features.nativeStandardJSON) {
+          st.skip('No native compileStandard interface');
+          st.end();
+          return;
+        }
+        const input = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                '*': ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'C:\\project\\a.sol': {
+              content: 'contract A {}'
+            },
+            'http://example.com/contracts/b.sol': {
+              content: 'contract B {}'
+            },
+            'plain/c.sol': {
+              content: 'contract C {}'
+            }
+          }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        st.ok(expectNoError(output));
+        st.deepEqual(Object.keys(output.contracts).sort(), ['C:\\project\\a.sol', 'http://example.com/contracts/b.sol', 'plain/c.sol'], 'contracts keyed by full source paths');
+        st.deepEqual(Object.keys(output.contracts['C:\\project\\a.sol'] || {}), ['A']);
+        st.deepEqual(Object.keys(output.contracts['http://example.com/contracts/b.sol'] || {}), ['B']);
+        st.deepEqual(Object.keys(output.contracts['plain/c.sol'] || {}), ['C']);
+        const contractA = (output.contracts['C:\\project\\a.sol'] || {}).A || { evm: { bytecode: { object: '' } } };
+        st.ok(contractA.evm.bytecode.object.length > 0, 'bytecode present under repaired key');
         st.end();
       });
     });
