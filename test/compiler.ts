@@ -279,6 +279,32 @@ function runTests (solc, versionText) {
         st.end();
       });
 
+      t.test('callback exception does not corrupt subsequent compilations (using lowlevel API)', function (st) {
+        // <0.2.1 doesn't have this
+        if (typeof solc.lowlevel.compileCallback !== 'function') {
+          st.skip('Low-level compileCallback interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        function findImports (path) {
+          throw new Error('Could not implement this interface properly...');
+        }
+        st.throws(function () {
+          solc.lowlevel.compileCallback(JSON.stringify({ sources: { 'b.sol': 'import "a.sol"; contract B { function g() public { f(); } }' } }), 0, { import: findImports });
+        }, /^Error: Could not implement this interface properly.../);
+
+        // The exception crossing the Emscripten boundary used to abort the
+        // compile call midway and leak the internal CompilerStack instance,
+        // making every subsequent compilation fail with
+        // "You shall not have another CompilerStack aside me".
+        const output = JSON.parse(solc.lowlevel.compileCallback(JSON.stringify({ sources: { 'a.sol': 'contract A { function f() public {} }' } }), 0));
+        st.ok(output.contracts, 'compilation returns contracts after a callback exception');
+        const bytecode = getBytecode(output, 'a.sol', 'A');
+        st.ok(typeof bytecode === 'string' && bytecode.length > 0, 'expected contract is present');
+        st.end();
+      });
+
       t.test('lazy-loading callback fails properly (with invalid callback) (using lowlevel API)', function (st) {
         // <0.2.1 doesn't have this
         if (typeof solc.lowlevel.compileCallback !== 'function') {
@@ -451,6 +477,65 @@ function runTests (solc, versionText) {
         const output = JSON.parse(solc.lowlevel.compileStandard(JSON.stringify(input), { import: findImports }));
         st.ok(bytecodeExists(output, 'a.sol', 'A'));
         st.ok(bytecodeExists(output, 'b.sol', 'B'));
+        st.end();
+      });
+
+      t.test('callback exception does not corrupt subsequent compilations (using standard JSON)', function (st) {
+        if (typeof solc.lowlevel.compileStandard !== 'function') {
+          st.skip('Low-level compileStandard interface not implemented by this compiler version.');
+          st.end();
+          return;
+        }
+
+        const inputWithImport = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                '*': ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'b.sol': {
+              content: 'import "a.sol"; contract B { function g() public {} }'
+            }
+          }
+        };
+
+        function throwingImports (path) {
+          throw new Error('Could not implement this interface properly...');
+        }
+
+        // The user callback's exception must still propagate to the caller...
+        st.throws(function () {
+          solc.lowlevel.compileStandard(JSON.stringify(inputWithImport), { import: throwingImports });
+        }, /^Error: Could not implement this interface properly.../);
+
+        // ...but it must not corrupt the compiler's internal state: before
+        // the fix, the exception crossed the Emscripten boundary, aborted the
+        // compile call midway and leaked the internal CompilerStack instance,
+        // so every subsequent compilation failed with
+        // "You shall not have another CompilerStack aside me".
+        const cleanInput = {
+          language: 'Solidity',
+          settings: {
+            outputSelection: {
+              '*': {
+                '*': ['evm.bytecode']
+              }
+            }
+          },
+          sources: {
+            'a.sol': {
+              content: 'contract A { function f() public {} }'
+            }
+          }
+        };
+        const output = JSON.parse(solc.lowlevel.compileStandard(JSON.stringify(cleanInput)));
+        st.ok(output.contracts, 'compilation returns contracts after a callback exception');
+        st.ok(output.contracts['a.sol'] && output.contracts['a.sol'].A, 'expected contract is present');
+        st.ok(output.contracts['a.sol'].A.evm.bytecode.object.length > 0, 'bytecode produced');
         st.end();
       });
 

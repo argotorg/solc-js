@@ -169,6 +169,27 @@ function runWithCallbacks (solJson, coreBindings, callbacks, compile, args) {
     callbacks = {};
   }
 
+  // An exception thrown by a user callback cannot safely propagate through
+  // the Emscripten/wasm boundary: it aborts the C++ compile call midway and
+  // leaks the internal CompilerStack instance, which makes every subsequent
+  // compilation fail with "You shall not have another CompilerStack aside me".
+  // Guard the callbacks so an exception is turned into a regular callback
+  // failure, let compile() unwind normally, and re-throw the original error
+  // afterwards.
+  let callbackException = null;
+  const guardCallback = function (userCallback) {
+    return function (...args) {
+      try {
+        return userCallback(...args);
+      } catch (exception) {
+        callbackException = exception;
+        return {
+          error: `Uncaught exception in callback: ${exception instanceof Error ? exception.message : String(exception)}`
+        };
+      }
+    };
+  };
+
   let readCallback = callbacks.import;
   if (readCallback === undefined) {
     readCallback = function (data) {
@@ -176,6 +197,8 @@ function runWithCallbacks (solJson, coreBindings, callbacks, compile, args) {
         error: 'File import callback not supported'
       };
     };
+  } else {
+    readCallback = guardCallback(readCallback);
   }
 
   let singleCallback;
@@ -188,6 +211,8 @@ function runWithCallbacks (solJson, coreBindings, callbacks, compile, args) {
           error: 'SMT solver callback not supported'
         };
       };
+    } else {
+      smtSolverCallback = guardCallback(smtSolverCallback);
     }
 
     singleCallback = function (kind, data) {
@@ -228,5 +253,12 @@ function runWithCallbacks (solJson, coreBindings, callbacks, compile, args) {
     //       reset() however will clear up all allocations.
     coreBindings.reset();
   }
+
+  // Re-throw an exception a guarded callback raised, now that compile()
+  // has unwound normally.
+  if (callbackException !== null) {
+    throw callbackException;
+  }
+
   return output;
 }
